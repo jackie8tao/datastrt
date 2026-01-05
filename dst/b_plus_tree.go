@@ -1,6 +1,8 @@
 package dst
 
-import "gohelper/errs"
+import (
+	"slices"
+)
 
 // BPTreeDegree B+树的阶数
 const BPTreeDegree = 5
@@ -11,7 +13,6 @@ type BPTreeNode struct {
 	Parent   *BPTreeNode   // 父节点
 	Keys     []int         // 中间节点键
 	Children []*BPTreeNode // 子节点
-	Datas    []string      // 叶子节点数据
 	Next     *BPTreeNode   // 叶子节点链表
 }
 
@@ -22,7 +23,6 @@ func NewBPTree() *BPTreeNode {
 		Parent:   nil,
 		Keys:     make([]int, 0),
 		Children: make([]*BPTreeNode, 0),
-		Datas:    make([]string, 0),
 		Next:     nil,
 	}
 }
@@ -32,26 +32,15 @@ func (b *BPTreeNode) Insert(key int, data string) {
 	node := b.searchLeaf(key, b)
 	if len(node.Keys) <= 0 {
 		node.Keys = append(node.Keys, key)
-		node.Datas = append(node.Datas, data)
 		return
 	}
+	pos, _ := slices.BinarySearch(node.Keys, key)
+	keys := make([]int, 0)
+	keys = append(keys, node.Keys[:pos]...)
+	keys = append(keys, key)
+	keys = append(keys, node.Keys[pos:]...)
+	node.Keys = keys
 
-	pos := 0
-	for i := 0; i < len(node.Keys); i++ {
-		pos = i
-		if key < node.Keys[i] {
-			break
-		}
-	}
-	pos += 1
-	leftKeys, leftDatas := node.Keys[:pos], node.Datas[:pos]
-	rightKeys, rightDatas := node.Keys[pos:], node.Datas[pos:]
-	node.Keys = append(node.Keys, leftKeys...)
-	node.Keys = append(node.Keys, key)
-	node.Keys = append(node.Keys, rightKeys...)
-	node.Datas = append(node.Datas, leftDatas...)
-	node.Datas = append(node.Datas, data)
-	node.Datas = append(node.Datas, rightDatas...)
 	if len(node.Keys) >= BPTreeDegree {
 		b.splitNode(node)
 	}
@@ -64,25 +53,22 @@ func (b *BPTreeNode) newNode() *BPTreeNode {
 		Parent:   nil,
 		Keys:     make([]int, 0),
 		Children: make([]*BPTreeNode, 0),
-		Datas:    make([]string, 0),
 		Next:     nil,
 	}
 }
 
 func (b *BPTreeNode) insertParent(left *BPTreeNode, key int, right *BPTreeNode) {
 	parent := left.Parent
-	if parent == nil {
+	if parent == nil { // 没有parent，向上增长
 		node := b.newNode()
 		node.IsLeaf = left.IsLeaf
 		node.Keys = left.Keys
-		node.Datas = left.Datas
 		node.Children = left.Children
 		node.Next = left.Next
 
 		left.Parent = nil
 		left.Keys = make([]int, 0)
 		left.Children = make([]*BPTreeNode, 0)
-		left.Datas = make([]string, 0)
 		left.Next = nil
 		left.IsLeaf = false
 		left.Keys = append(left.Keys, key)
@@ -93,28 +79,30 @@ func (b *BPTreeNode) insertParent(left *BPTreeNode, key int, right *BPTreeNode) 
 		return
 	}
 
-	pos := 0
-	found := false
-	for i := 0; i < len(parent.Keys); i++ {
-		if parent.Keys[i] > key {
-			pos = i
-			found = true
+	pos, _ := slices.BinarySearch(parent.Keys, key)
+	keys := make([]int, 0)
+	keys = append(keys, parent.Keys[:pos]...)
+	keys = append(keys, key)
+	keys = append(keys, parent.Keys[pos:]...)
+	parent.Keys = keys
+
+	children := make([]*BPTreeNode, 0)
+	pos = 0
+	for i := 0; i < len(parent.Children); i++ {
+		pos = i
+		children = append(children, parent.Children[i])
+		if left == parent.Children[i] {
 			break
 		}
 	}
-	if !found {
-		pos = len(parent.Keys) - 1
+	children = append(children, right)
+	for i := pos + 1; i < len(parent.Children); i++ {
+		children = append(children, parent.Children[i])
 	}
-	leftKeys := parent.Keys[:pos]
-	leftChildren := parent.Children[:pos]
-	rightKeys := parent.Keys[pos:]
-	rightChildren := parent.Children[pos:]
-	parent.Keys = append(leftKeys, key)
-	parent.Keys = append(parent.Keys, rightKeys...)
-	parent.Children = append(leftChildren, right)
-	parent.Children = append(parent.Children, rightChildren...)
-	if len(parent.Keys) > BPTreeDegree {
-		b.splitInternal(parent)
+	parent.Children = children
+
+	if len(parent.Keys) >= BPTreeDegree {
+		b.splitNode(parent)
 	}
 }
 
@@ -127,10 +115,8 @@ func (b *BPTreeNode) splitLeaf(curNode *BPTreeNode) {
 	rightNode := b.newNode()
 	rightNode.IsLeaf = true
 	rightNode.Keys = curNode.Keys[pos:]
-	rightNode.Datas = curNode.Datas[pos:]
 	rightNode.Parent = curNode.Parent
 	curNode.Keys = curNode.Keys[:pos]
-	curNode.Datas = curNode.Datas[:pos]
 	curNode.Next = rightNode
 	b.insertParent(curNode, rightNode.Keys[0], rightNode)
 	return
@@ -173,16 +159,6 @@ func (b *BPTreeNode) mergeNode() {
 
 }
 
-func (b *BPTreeNode) Search(key int) (string, error) {
-	node := b.searchLeaf(key, b)
-	for i := 0; i < len(node.Keys); i++ {
-		if key == node.Keys[i] {
-			return node.Datas[i], nil
-		}
-	}
-	return "", errs.ErrNotFound
-}
-
 func (b *BPTreeNode) searchLeaf(key int, node *BPTreeNode) *BPTreeNode {
 	if node.IsLeaf {
 		return node
@@ -193,17 +169,6 @@ func (b *BPTreeNode) searchLeaf(key int, node *BPTreeNode) *BPTreeNode {
 		}
 	}
 	return b.searchLeaf(key, node.Children[len(node.Children)-1])
-}
-
-func (b *BPTreeNode) Update(key int, data string) error {
-	node := b.searchLeaf(key, b)
-	for i := 0; i < len(node.Keys); i++ {
-		if key == node.Keys[i] {
-			node.Datas[i] = data
-			return nil
-		}
-	}
-	return errs.ErrNotFound
 }
 
 // Print 打印出整个树的结构，用于调试
