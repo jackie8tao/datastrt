@@ -10,7 +10,7 @@ import (
 
 func main() {
 	bt := dst.NewBPTree()
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 150; i++ {
 		num := rand.Int() % 1000
 		fmt.Println(num)
 		bt.Insert(num, time.Now().String())
